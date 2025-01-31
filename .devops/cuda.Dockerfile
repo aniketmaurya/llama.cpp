@@ -49,18 +49,14 @@ RUN apt-get update \
     && find /var/cache -type f -delete
 
 COPY --from=build /app/lib/ /app
+COPY --from=build /app/full/llama-server /app
 
 ### Server, Server only
 FROM base AS server
 
 ENV LLAMA_ARG_HOST=0.0.0.0
 
-COPY --from=build /app/full/llama-server /app
-
 WORKDIR /app
-
-# Copy library files first (less likely to change)
-COPY --from=build /app/lib/ /app
 
 # Copy server binary (may change with code updates)
 COPY --from=build /app/full/llama-server /app
