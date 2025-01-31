@@ -1,6 +1,6 @@
 ARG UBUNTU_VERSION=22.04
 # This needs to generally match the container host's environment.
-ARG CUDA_VERSION=12.6.0
+ARG CUDA_VERSION=12.1.1
 # Target the CUDA build image
 ARG BASE_CUDA_DEV_CONTAINER=nvidia/cuda:${CUDA_VERSION}-devel-ubuntu${UBUNTU_VERSION}
 
@@ -39,7 +39,9 @@ RUN mkdir -p /app/full \
 FROM ${BASE_CUDA_RUN_CONTAINER} AS base
 
 RUN apt-get update \
-    && apt-get install -y libgomp1 curl\
+    && apt-get install -y libgomp1 curl python3 python3-pip \
+    && pip install --upgrade pip setuptools wheel \
+    && pip install lightning-sdk \
     && apt autoremove -y \
     && apt clean -y \
     && rm -rf /tmp/* /var/tmp/* \
@@ -47,38 +49,6 @@ RUN apt-get update \
     && find /var/cache -type f -delete
 
 COPY --from=build /app/lib/ /app
-
-### Full
-FROM base AS full
-
-COPY --from=build /app/full /app
-
-WORKDIR /app
-
-RUN apt-get update \
-    && apt-get install -y \
-    git \
-    python3 \
-    python3-pip \
-    && pip install --upgrade pip setuptools wheel \
-    && pip install -r requirements.txt \
-    && apt autoremove -y \
-    && apt clean -y \
-    && rm -rf /tmp/* /var/tmp/* \
-    && find /var/cache/apt/archives /var/lib/apt/lists -not -name lock -type f -delete \
-    && find /var/cache -type f -delete
-
-
-ENTRYPOINT ["/app/tools.sh"]
-
-### Light, CLI only
-FROM base AS light
-
-COPY --from=build /app/full/llama-cli /app
-
-WORKDIR /app
-
-ENTRYPOINT [ "/app/llama-cli" ]
 
 ### Server, Server only
 FROM base AS server
@@ -89,6 +59,14 @@ COPY --from=build /app/full/llama-server /app
 
 WORKDIR /app
 
-HEALTHCHECK CMD [ "curl", "-f", "http://localhost:8080/health" ]
+# Copy library files first (less likely to change)
+COPY --from=build /app/lib/ /app
 
-ENTRYPOINT [ "/app/llama-server" ]
+# Copy server binary (may change with code updates)
+COPY --from=build /app/full/llama-server /app
+
+# Copy entrypoint script last (most likely to change during development)
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
+ENTRYPOINT ["/app/entrypoint.sh"]
